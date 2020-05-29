@@ -1,4 +1,4 @@
-EXAMPLE TO USE I2S TO DRIVE A LED DISPLAY
+Example to use i2s to drive a led display
 =========================================
 
 This is example code to drive one of the common 64x32-pixel RGB LED
