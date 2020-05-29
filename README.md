@@ -1,5 +1,4 @@
-Example to use i2s to drive a led display
-=========================================
+# Example to use i2s to drive a led display
 
 This is example code to drive one of the common 64x32-pixel RGB LED
 screen. It illustrates the parallel output mode of the I2S peripheral.
@@ -14,3 +13,14 @@ https://esp32.com/viewtopic.php?t=3188
 Modified to match pin-out of Espirgbani Rev 1 board:
 https://github.com/yetifrisstlama/Espirgbani
 
+# Building
+  * install [PlatformIO](https://platformio.org/)
+  * disconnect LED panel
+  * connect USB-TTY cable
+  * hold the `FLASH` button
+
+then ...
+
+```bash
+$ pio run -t upload -t monitor
+```
