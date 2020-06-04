@@ -77,11 +77,11 @@ static void fill_dma_desc(volatile lldesc_t *dmadesc, i2s_parallel_buffer_desc_t
     printf("fill_dma_desc: filled %d descriptors\n", n);
 }
 
-static void gpio_setup_out(int gpio, int sig) {
+static void gpio_setup_out(int gpio, int sig, bool isInverted) {
     if (gpio==-1) return;
     PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
     gpio_set_direction(gpio, GPIO_MODE_DEF_OUTPUT);
-    gpio_matrix_out(gpio, sig, false, false);
+    gpio_matrix_out(gpio, sig, isInverted, false);
 }
 
 
@@ -118,10 +118,10 @@ void i2s_parallel_setup(i2s_dev_t *dev, const i2s_parallel_config_t *cfg) {
 
     //Route the signals
     for (int x=0; x<cfg->bits; x++) {
-        gpio_setup_out(cfg->gpio_bus[x], sig_data_base+x);
+        gpio_setup_out(cfg->gpio_bus[x], sig_data_base+x, false);
     }
     //ToDo: Clk/WS may need inversion?
-    gpio_setup_out(cfg->gpio_clk, sig_clk);
+    gpio_setup_out(cfg->gpio_clk, sig_clk, cfg->is_clk_inverted);
 
     //Power on dev
     if (dev==&I2S0) {
@@ -150,13 +150,12 @@ void i2s_parallel_setup(i2s_dev_t *dev, const i2s_parallel_config_t *cfg) {
     dev->clkm_conf.clkm_div_a=63;
     dev->clkm_conf.clkm_div_b=63;
     //We ignore the possibility for fractional division here.
-    dev->clkm_conf.clkm_div_num=80000000L/cfg->clkspeed_hz;
+    dev->clkm_conf.clkm_div_num=cfg->clk_div;
+
 
     dev->fifo_conf.val=0;
     dev->fifo_conf.rx_fifo_mod_force_en=1;
     dev->fifo_conf.tx_fifo_mod_force_en=1;
-    dev->fifo_conf.tx_fifo_mod=1;
-    dev->fifo_conf.tx_fifo_mod=1;
     dev->fifo_conf.rx_data_num=32; //Thresholds.
     dev->fifo_conf.tx_data_num=32;
     dev->fifo_conf.dscr_en=1;
@@ -166,10 +165,18 @@ void i2s_parallel_setup(i2s_dev_t *dev, const i2s_parallel_config_t *cfg) {
     dev->conf1.tx_pcm_bypass=1;
 
     dev->conf_chan.val=0;
-    dev->conf_chan.tx_chan_mod=1;
-    dev->conf_chan.rx_chan_mod=1;
+
+    // flicker hack, initialize in mode 0 instead of mode 1
+    // this puts output words in natural order,
+    // instead of swapping them in pairs, like mode 1 does
+    // also doubles the frequency
+    I2S1.fifo_conf.tx_fifo_mod = 0;  // TX FIFO mode0, 16 bit dual channel data
+    I2S1.conf_chan.tx_chan_mod = 0;  // dual channel mode
+    I2S1.conf2.lcd_tx_wrx2_en = 1;   // if this is 0 in mode 0 output data in DDR mode!
 
     //Invert ws to be active-low... ToDo: make this configurable
+    // ... this doesn't invert anything :p
+    // but inversion can be done through the GPIO matrix :)
     dev->conf.tx_right_first=1;
     dev->conf.rx_right_first=1;
 

@@ -86,10 +86,6 @@ Note: Because every subframe contains one bit of grayscale information, they are
 #define DISPLAY_WIDTH  128
 #define DISPLAY_HEIGHT  32
 
-//My display has each row swapped with its neighbour (so the rows are 2-1-4-3-6-5-8-7-...). If your display
-//is more sane, uncomment this to get a good image.
-#define DISPLAY_ROWS_SWAPPED 1
-
 //This is the bit depth, per RGB subpixel, of the data that is sent to the display.
 //The effective bit depth (in computer pixel terms) is less because of the PWM correction. With
 //a bitplane count of 7, you should be able to reproduce an 16-bit image more or less faithfully, though.
@@ -163,24 +159,16 @@ void update_frame()
             if ((y-1)&2) lbits|=BIT_B;
             if ((y-1)&4) lbits|=BIT_C;
             if ((y-1)&8) lbits|=BIT_D;
-            for (int fx=0; fx<DISPLAY_WIDTH; fx++) {
-                #if DISPLAY_ROWS_SWAPPED
-                    int x=fx^1; //to correct for the fact that the stupid LED screen I have has each row swapped...
-                #else
-                    int x=fx;
-                #endif
-
+            for (int x=0; x<DISPLAY_WIDTH; x++) {
                 int v=lbits;
                 //Do not show image while the line bits are changing
-                if (fx<1 || fx>=brightness) v|=BIT_OE;
+                // OE is active low, it would be better to call it BLANK
+                if (x >= brightness) v |= BIT_OE;
 
                 // latch pulse at the end of shifting in row - data
-
-                // latching on DISPLAY_WIDTH - 1:
-                //     first column is weirdly rotated by 8 rows, otherwise good
-                // latching on DISPLAY_WIDTH - 2:
-                //     first column is okay but vertical lines get distorted by 1 pixel, timing problem?
-                if (fx == DISPLAY_WIDTH - 1) v|=BIT_LAT;
+                // in mode 0 (with display hack) we get natural word order, latch on DISPLAY_WIDTH - 1
+                if (x == (DISPLAY_WIDTH - 1)) v |= BIT_LAT;
+                // in mode 1 words are swapped, latch on DISPLAY_WIDTH - 2
 
                 int c1, c2;
                 c1=getPixel(framebuf, x, y);
@@ -272,7 +260,14 @@ void app_main()
         .gpio_clk=22,
 
         .bits=I2S_PARALLEL_BITS_16,
-        .clkspeed_hz=20*1000*1000,
+        // .clk_div=1,     // = 10 MHz (in mode 0 = flicker hack enabled)
+        // .clk_div=2,     // = 13.3 MHz
+        // .clk_div=3,     // = 10 MHz
+        // .clk_div=4,     // = 8 MHz
+        .clk_div=8,     // = 4.4 MHz
+        // .clk_div=16,     // = 2.4 MHz
+
+        .is_clk_inverted=true,
         .bufa=bufdesc[0],
         .bufb=bufdesc[1],
     };
