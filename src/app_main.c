@@ -83,6 +83,28 @@ luminance correction is used. See val2pwm.c for more info.
 Note: Because every subframe contains one bit of grayscale information, they are also referred to as 'bitplanes' by the code below.
 */
 
+// -----------------
+//  LED panel GPIOs
+// -----------------
+// Upper half RGB
+#define GPIO_R1 GPIO_NUM_22
+#define GPIO_G1 GPIO_NUM_23
+#define GPIO_B1 GPIO_NUM_21
+// Lower half RGB
+#define GPIO_R2 GPIO_NUM_18
+#define GPIO_G2 GPIO_NUM_19
+#define GPIO_B2 GPIO_NUM_5
+// Control signals
+#define GPIO_A GPIO_NUM_16
+#define GPIO_B GPIO_NUM_17
+#define GPIO_C GPIO_NUM_2
+#define GPIO_D GPIO_NUM_4
+#define GPIO_E GPIO_NUM_32
+#define GPIO_LAT GPIO_NUM_15
+#define GPIO_OE GPIO_NUM_12
+#define GPIO_CLK GPIO_NUM_13
+
+
 #define DISPLAY_WIDTH  128
 #define DISPLAY_HEIGHT  32
 
@@ -98,30 +120,25 @@ Note: Because every subframe contains one bit of grayscale information, they are
 // -------------------------------------------
 //  Meaning of the bits in a 16 bit DMA word
 // -------------------------------------------
-
 //Upper half RGB
 #define BIT_R1 (1<<0)
 #define BIT_G1 (1<<1)
 #define BIT_B1 (1<<2)
-
 //Lower half RGB
 #define BIT_R2 (1<<3)
 #define BIT_G2 (1<<4)
 #define BIT_B2 (1<<5)
-
 // -1 = don't care
 // -1
-
 #define BIT_A (1<<8)
 #define BIT_B (1<<9)
 #define BIT_C (1<<10)
 #define BIT_D (1<<11)
-
 #define BIT_LAT (1<<12)
 #define BIT_OE (1<<13)
+// -1
+// -1
 
-// -1
-// -1
 
 int brightness=16; //Change to set the global brightness of the display, range 1 .. DISPLAY_WIDTH - 1
                    //Warning when set too high: Do not look into LEDs with remaining eye.
@@ -256,8 +273,8 @@ void app_main()
         // -------------------
         //  Espirgbani pinout
         // -------------------
-        .gpio_bus={2, 15, 13,   16, 27, 17,   -1, -1,   5, 18, 19, 23,   26, 25,   -1, -1},
-        .gpio_clk=22,
+        .gpio_bus={GPIO_R1, GPIO_G1, GPIO_B1, GPIO_R2, GPIO_G2, GPIO_B2, -1, -1, GPIO_A, GPIO_B, GPIO_C, GPIO_D, GPIO_LAT, GPIO_OE, -1, -1},
+        .gpio_clk=GPIO_CLK,
 
         .bits=I2S_PARALLEL_BITS_16,
         // .clk_div=1,     // = 10 MHz (in mode 0 = flicker hack enabled)
