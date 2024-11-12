@@ -88,12 +88,12 @@ Note: Because every subframe contains one bit of grayscale information, they are
 // -----------------
 // Upper half RGB
 #define GPIO_R1 GPIO_NUM_22
-#define GPIO_G1 GPIO_NUM_23
-#define GPIO_B1 GPIO_NUM_21
+#define GPIO_G1 GPIO_NUM_21
+#define GPIO_B1 GPIO_NUM_23
 // Lower half RGB
 #define GPIO_R2 GPIO_NUM_18
-#define GPIO_G2 GPIO_NUM_19
-#define GPIO_B2 GPIO_NUM_5
+#define GPIO_G2 GPIO_NUM_5
+#define GPIO_B2 GPIO_NUM_19
 // Control signals
 #define GPIO_A GPIO_NUM_16
 #define GPIO_B GPIO_NUM_17
@@ -101,7 +101,7 @@ Note: Because every subframe contains one bit of grayscale information, they are
 #define GPIO_D GPIO_NUM_4
 #define GPIO_E GPIO_NUM_32
 #define GPIO_LAT GPIO_NUM_15
-#define GPIO_OE GPIO_NUM_12
+#define GPIO_OE GPIO_NUM_33
 #define GPIO_CLK GPIO_NUM_13
 
 
@@ -135,37 +135,51 @@ Note: Because every subframe contains one bit of grayscale information, they are
 #define BIT_C (1<<10)
 #define BIT_D (1<<11)
 #define BIT_LAT (1<<12)
-#define BIT_OE (1<<13)
+#define BIT_OE_N (1<<13)
 // -1
 // -1
 
+// 16 bit parallel mode - Save the calculated value to the bitplane memory
+// in reverse order to account for I2S Tx FIFO mode1 ordering
+#define ESP32_TX_FIFO_POSITION_ADJUST(x_coord) (((x_coord)&1U) ? (x_coord - 1) : (x_coord + 1))
 
-int brightness=16; //Change to set the global brightness of the display, range 1 .. DISPLAY_WIDTH - 1
-                   //Warning when set too high: Do not look into LEDs with remaining eye.
+//Change to set the global brightness of the display, range 0 .. DISPLAY_WIDTH - 2
+// int brightness=126;
+int brightness=2;
 
 uint16_t *bitplane[2][BITPLANE_CNT];
-uint8_t framebuf[DISPLAY_WIDTH * DISPLAY_HEIGHT * 3];
+uint32_t framebuf[DISPLAY_WIDTH * DISPLAY_HEIGHT];
 
-//Get a pixel from the image at pix, assuming the image is a 64x32 8R8G8B image
-//Returns it as an uint32 with the lower 24 bits containing the RGB values.
-static uint32_t getPixel(uint8_t *buf, int x, int y)
+static uint32_t getPixel(int x, int y)
 {
-    uint8_t *p = &buf[(x + y * DISPLAY_WIDTH) * 3];
-    return (p[0] << 16) | (p[1] << 8) | p[2];
+    return framebuf[(x + y * DISPLAY_WIDTH)];
 }
 
-
+// col is in format: MSB {x, R, G, B} LSB
 static void setPixel(unsigned x, unsigned y, unsigned col)
 {
-    uint8_t *p = &framebuf[(x + y * DISPLAY_WIDTH) * 3];
-    p[0] = col >> 16;
-    p[1] = col >> 8;
-    p[2] = col;
+    framebuf[(x + y * DISPLAY_WIDTH)] = col;
 }
+
+// set all pixels of a layer to a color
+static void setAll(unsigned col)
+{
+    for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++)
+        framebuf[i] = col;
+}
+
 
 void update_frame()
 {
     static int backbuf_id=0; //which buffer is the backbuffer, as in, which one is not active so we can write to it
+
+    // center the output enable between 2 strobes
+    int br = brightness;
+    if (br > (DISPLAY_WIDTH - 2))
+        br = (DISPLAY_WIDTH - 2);
+
+    int oe_start = (DISPLAY_WIDTH - br) / 2;
+    int oe_stop = (DISPLAY_WIDTH + br) / 2;
 
     for (int pl=0; pl<BITPLANE_CNT; pl++) {
         int mask=(1<<(8-BITPLANE_CNT+pl)); //bitmask for pixel data in input for this bitplane
@@ -177,19 +191,20 @@ void update_frame()
             if ((y-1)&4) lbits|=BIT_C;
             if ((y-1)&8) lbits|=BIT_D;
             for (int x=0; x<DISPLAY_WIDTH; x++) {
-                int v=lbits;
-                //Do not show image while the line bits are changing
-                // OE is active low, it would be better to call it BLANK
-                if (x >= brightness) v |= BIT_OE;
+                int x_ = ESP32_TX_FIFO_POSITION_ADJUST(x);
+                int v = lbits;
+
+                // Do not show image while the line bits are changing
+                if (!(x_ >= oe_start && x_ < oe_stop))
+                    v |= BIT_OE_N;
 
                 // latch pulse at the end of shifting in row - data
-                // in mode 0 (with display hack) we get natural word order, latch on DISPLAY_WIDTH - 1
-                if (x == (DISPLAY_WIDTH - 1)) v |= BIT_LAT;
-                // in mode 1 words are swapped, latch on DISPLAY_WIDTH - 2
+                if (x_ == (DISPLAY_WIDTH - 1))
+                    v |= BIT_LAT;
 
                 int c1, c2;
-                c1=getPixel(framebuf, x, y);
-                c2=getPixel(framebuf, x, y + 16);
+                c1 = getPixel(x_, y);
+                c2 = getPixel(x_, y + 16);
                 if (c1 & (mask<<16)) v|=BIT_R1;
                 if (c1 & (mask<<8)) v|=BIT_G1;
                 if (c1 & (mask<<0)) v|=BIT_B1;
@@ -212,7 +227,7 @@ void tp_diagonal()
     for (unsigned y=0; y<DISPLAY_HEIGHT; y++)
         for (unsigned x=0; x<DISPLAY_WIDTH; x++)
             setPixel(x, y, (x - y) % DISPLAY_HEIGHT == 0 ? 0xFFFFFFFF : 0xFF000000);
-    update_frame(framebuf);
+    update_frame();
     vTaskDelay(6000 / portTICK_PERIOD_MS);
 }
 
@@ -225,7 +240,7 @@ void tp_stripes(unsigned width, unsigned offset, bool isY)
             setPixel(x, y, col);
         }
     }
-    update_frame(framebuf);
+    update_frame();
 }
 
 void tp_stripes_sequence(bool isY)
@@ -277,14 +292,14 @@ void app_main()
         .gpio_clk=GPIO_CLK,
 
         .bits=I2S_PARALLEL_BITS_16,
-        // .clk_div=1,     // = 10 MHz (in mode 0 = flicker hack enabled)
-        // .clk_div=2,     // = 13.3 MHz
-        // .clk_div=3,     // = 10 MHz
-        // .clk_div=4,     // = 8 MHz
-        .clk_div=8,     // = 4.4 MHz
-        // .clk_div=16,     // = 2.4 MHz
+        // .clk_div=1,     // illegal
+        .clk_div=2,     // = 20 MHz
+        // .clk_div=3,     // = 13.33 MHz
+        // .clk_div=4,     // = 10 MHz
+        // .clk_div=8,     // = 5 MHz
+        // .clk_div=16,     // = 2.5 MHz
 
-        .is_clk_inverted=true,
+        .is_clk_inverted=false,
         .bufa=bufdesc[0],
         .bufb=bufdesc[1],
     };
@@ -328,6 +343,21 @@ void app_main()
     printf("I2S setup done.\n");
 
     while(1) {
+        printf("All red\n");
+        setAll(0xFFFF0000);
+        update_frame();
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+        printf("All green\n");
+        setAll(0xFF00FF00);
+        update_frame();
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+        printf("All blue\n");
+        setAll(0xFF0000FF);
+        update_frame();
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
         tp_diagonal();
         tp_stripes_sequence(false);
         tp_stripes_sequence(true);
